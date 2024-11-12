@@ -1,10 +1,18 @@
+import java.io.File
 import java.net.ServerSocket
 import java.net.Socket
 import java.util.concurrent.Executors
 
-fun main() {
+fun main(args: Array<String>) {
+    // Use /tmp as default directory if none
+    val directory = if (args.isNotEmpty() && args[0] == "--directory") {
+        args[1]
+    } else {
+        "/tmp"
+    }
+
     // Print debugging logs
-    println("Logs!")
+    println("Logs from program will appear here!")
 
     // Create server socket on port 4221
     val serverSocket = ServerSocket(4221).apply {
@@ -20,11 +28,11 @@ fun main() {
         println("Accepted new connection")
 
         // Submit each client connection to the thread pool
-        threadPool.submit { handleClient(client) }
+        threadPool.submit { handleClient(client, directory) }
     }
 }
 
-fun handleClient(client: Socket) {
+fun handleClient(client: Socket, directory: String) {
     client.use {
         // Handle the client's input and output streams
         val input = client.getInputStream()
@@ -69,6 +77,24 @@ fun handleClient(client: Socket) {
                         output.write("Content-Type: text/plain\r\n".toByteArray())
                         output.write("Content-Length: ${userAgent.length}\r\n\r\n".toByteArray())
                         output.write(userAgent.toByteArray())
+                    } else if (path.startsWith("/files/")) {
+                        // Extract the filename and locate the file
+                        val filename = path.removePrefix("/files/")
+                        val file = File(directory, filename)
+
+                        if (file.exists() && file.isFile) {
+                            // File exists, prepare the response
+                            val fileContent = file.readBytes()
+                            val contentLength = fileContent.size
+
+                            output.write("HTTP/1.1 200 OK\r\n".toByteArray())
+                            output.write("Content-Type: application/octet-stream\r\n".toByteArray())
+                            output.write("Content-Length: $contentLength\r\n\r\n".toByteArray())
+                            output.write(fileContent)  // Write file content as response body
+                        } else {
+                            // File does not exist, respond with 404 Not Found
+                            output.write("HTTP/1.1 404 Not Found\r\n\r\n".toByteArray())
+                        }
                     } else {
                         // Respond with a 404 Not Found for any other paths
                         output.write("HTTP/1.1 404 Not Found\r\n\r\n".toByteArray())
